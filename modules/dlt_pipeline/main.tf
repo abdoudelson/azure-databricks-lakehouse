@@ -1,8 +1,9 @@
 resource "databricks_pipeline" "this" {
   name       = var.name
-  target     = var.target_schema
   storage    = var.pipeline_storage
   continuous = var.continuous
+
+  target = "${var.catalog}.${var.schema}" # Unity Catalog fully qualified
 
   library {
     notebook {

@@ -55,11 +55,13 @@ module "jobs" {
 
 module "dlt" {
   source           = "../modules/dlt_pipeline"
-  name             = "${local.prefix}-transport-dlt"
-  target_schema    = "silver"
-  pipeline_storage = "abfss://silver@${module.storage.account_name}.dfs.core.windows.net/dlt"
-  continuous       = local.is_prod
+  name             = "bronze_pipeline"
+  catalog          = "main"   # Existing Unity Catalog metastore catalog
+  schema           = "bronze" # Schema inside the catalog
+  pipeline_storage = "dbfs:/pipelines/bronze"
+  continuous       = true
 }
+
 
 resource "azurerm_role_assignment" "adls_uc" {
   scope                = module.storage.account_id
