@@ -30,11 +30,20 @@ module "unity_catalog" {
   storage_root = "abfss://gold@${module.storage.account_name}.dfs.core.windows.net/"
 }
 
+
+module "access_connector" {
+  source   = "../modules/access_connector"
+  name     = "${local.prefix}-ac"
+  rg_name  = module.resource_group.name
+  location = local.location
+}
+
 module "external_locations" {
-  source          = "../modules/external_locations"
-  storage_account = module.storage.account_name
-  containers      = local.containers
-  prefix          = local.prefix
+  source              = "../modules/external_locations"
+  storage_account     = module.storage.account_name
+  containers          = local.containers
+  prefix              = local.prefix
+  access_connector_id = module.access_connector.id
 }
 
 module "jobs" {
@@ -51,3 +60,10 @@ module "dlt" {
   pipeline_storage = "abfss://silver@${module.storage.account_name}.dfs.core.windows.net/dlt"
   continuous       = local.is_prod
 }
+
+resource "azurerm_role_assignment" "adls_uc" {
+  scope                = module.storage.account_id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = module.access_connector.principal_id
+}
+
