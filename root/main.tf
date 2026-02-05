@@ -64,3 +64,30 @@ resource "azurerm_role_assignment" "adls_uc" {
 }
 
 
+
+# -----------------------------
+# Schema
+# -----------------------------
+resource "databricks_schema" "schema_test" {
+  catalog_name = local.catalog
+  name         = local.schema_name
+}
+
+# -----------------------------
+# DLT Pipeline
+# -----------------------------
+module "dlt_pipeline" {
+  source = "../modules/dlt_pipeline"
+
+  name       = local.pipeline_name
+  continuous = true
+
+  catalog = local.catalog
+  schema  = local.schema_name
+
+  pipeline_storage = "abfss://bronze@lakehouseuatdl.dfs.core.windows.net/dlt"
+
+  depends_on = [
+    databricks_schema.schema_test
+  ]
+}
