@@ -71,6 +71,9 @@ resource "azurerm_role_assignment" "adls_uc" {
 resource "databricks_schema" "schema_test" {
   catalog_name = local.catalog
   name         = local.schema_name
+  depends_on = [
+    module.databricks_workspace.name
+  ]
 }
 
 # -----------------------------
@@ -82,9 +85,8 @@ module "dlt_pipeline" {
   name       = local.pipeline_name
   continuous = true
 
-  catalog = local.catalog
-  schema  = local.schema_name
-
+  catalog          = local.catalog
+  schema           = local.schema_name
   pipeline_storage = "abfss://bronze@lakehouseuatdl.dfs.core.windows.net/dlt"
 
   depends_on = [
