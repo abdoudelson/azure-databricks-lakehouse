@@ -1,109 +1,144 @@
 # Azure Databricks Lakehouse - Technical Documentation
 
-## 1. Codebase Overview
-This project uses **Terraform** to deploy an **Azure Databricks Lakehouse** infrastructure. It is designed to be multi-environment (Dev, UAT, Prod) using **Terraform Workspaces**.
+This project provisions a **Data Lakehouse** on Azure Databricks using **Terraform** and **GitHub Actions** for CI/CD. It follows the **Medallion Architecture** (Raw, Bronze, Silver, Gold).
 
-### Core Technologies
-*   **Infrastructure as Code**: Terraform (AzureRM + Databricks providers).
-*   **Governance**: Databricks Unity Catalog (Metastore, External Locations).
-*   **Data Layout**: Medallion Architecture (Raw, Bronze, Silver, Gold).
-*   **ETL**: Delta Live Tables (DLT).
+---
 
-## 2. Folder Structure
+## 🚀 1. Prerequisites
 
-```text
-.
-├── root/                       # 🟢 ENTRY POINT
-│   ├── main.tf                 # Orchestrates the modules.
-│   ├── locals.tf               # Environment variables (maps workspace name to Azure region, SKU, etc).
-│   ├── providers.tf            # Azure & Databricks provider setup.
-│   ├── variables.tf            # Global variables (e.g., subscription_id).
-│   └── backed.tf               # Terraform backend config (State storage). *Currently empty*.
-│
-├── modules/                    # 🧩 REUSABLE COMPONENTS
-│   ├── resource_group/         # Creates the Azure Resource Group.
-│   ├── storage/                # Creates ADLS Gen2 Account + Containers (Raw/Bronze/Silver/Gold).
-│   ├── databricks_workspace/   # Creates Azure Databricks Workspace (Premium SKU).
-│   ├── access_connector/       # Creates the Azure Managed Identity for Databricks Access.
-│   ├── external_locations/     # Unity Catalog setup (Storage Credential + External Locations).
-│   └── dlt_pipeline/           # Defines the Delta Live Tables pipeline resource.
-│
-├── env/                        # 🌍 ENVIRONMENT SPECIFICS
-│   ├── dev.tfvars              # Variables for Development.
-│   ├── uat.tfvars              # Variables for UAT.
-│   └── prod.tfvars             # Variables for Production.
+Before you begin, ensure you have the following:
+
+### Tools
+
+- **Terraform** (v1.5+): [Install Guide](https://developer.hashicorp.com/terraform/downloads)
+- **Azure CLI**: [Install Guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+
+### Access & Permissions
+
+- **Azure Subscription**: You must have `Owner` or `User Access Administrator` permissions on the subscription (or target Resource Group) to:
+  - Create Service Principals.
+  - Assign Roles (specifically `Storage Blob Data Contributor` to Managed Identities).
+- **GitHub Repository Admin**: To configure Secrets and Environments.
+
+### 🔑 Authentication Setup (OIDC)
+
+This project uses **OIDC (OpenID Connect)** for passwordless authentication between GitHub Actions and Azure.
+
+> **See [OIDC_SETUP.md](./OIDC_SETUP.md) for the step-by-step setup guide.**
+
+You must configure these **GitHub Secrets**:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+---
+
+## 🏗️ 2. Architecture & Modules
+
+The infrastructure is modularized in the `modules/` directory.
+
+### Core Modules (Used in Deployment)
+
+| Module                     | Description                                                                                                                |
+| :------------------------- | :------------------------------------------------------------------------------------------------------------------------- |
+| **`resource_group`**       | Creates the Azure Resource Group (e.g., `lakehouse-dev-rg`).                                                               |
+| **`storage`**              | Provisions ADLS Gen2 Account (`lakehouse<env>dl`) with HNS enabled and containers: `raw`, `bronze`, `silver`, `gold`.      |
+| **`databricks_workspace`** | Deploys Azure Databricks Workspace (Premium SKU) with VNet injection (optional) and NPIP.                                  |
+| **`access_connector`**     | Creates an Azure **Access Connector for Databricks** (Managed Identity) to allow Unity Catalog to access storage securely. |
+| **`external_locations`**   | **Unity Catalog Core**: Creates the Storage Credential and defines **External Locations** for each storage container.      |
+| **`dlt_pipeline`**         | Defines a **Delta Live Tables** (DLT) pipeline resource, pointing to the source code repository.                           |
+
+### Available Modules (Future Use)
+
+| Module              | Description                                                                                                                       |
+| :------------------ | :-------------------------------------------------------------------------------------------------------------------------------- |
+| **`jobs`**          | Templates for Databricks Jobs (e.g., `bronze-autoloader`). Currently available for instantiation but not wired in `root/main.tf`. |
+| **`unity_catalog`** | Manages Metastore creation and workspace assignment. _Note: Current deployment uses default per-workspace catalog setup._         |
+
+---
+
+## 🔄 3. CI/CD Pipeline
+
+The project uses **GitHub Actions** for automated deployment. The workflow is defined in `.github/workflows/deploy.yml`.
+
+### Workflow Strategy
+
+| Branch    | Environment        | Terraform Workspace | Usage                         |
+| :-------- | :----------------- | :------------------ | :---------------------------- |
+| `main`    | **Production**     | `prd`               | Stable release.               |
+| `develop` | **Pre-Production** | `ppd`               | Integrated testing.           |
+| _Other_   | _Development_      | `dev`               | Feature branches (Plan only). |
+
+### Pipeline Steps
+
+1.  **Authentication**: Logs in to Azure using OIDC (Federated Credentials).
+2.  **Checkout**: Pulls the code.
+3.  **Validation (Pull Request)**:
+    - Runs `terraform fmt -check` to ensure code style.
+    - Runs `terraform init` to validate configuration.
+4.  **Deployment (Push to main/develop)**:
+    - **Determine Workspace**: Dynamic logic to pick `prd` vs `ppd` based on branch.
+    - **Init with Dynamic Key**: Initializes backend using the workspace name as the state folder (e.g., `prd/terraform.tfstate`).
+    - **Plan**: Generates the execution plan.
+    - **Apply**: Automatically applies changes (Auto-approve).
+
+---
+
+## 🛠️ 4. Local Deployment Guide
+
+If you need to run Terraform locally (e.g., for development):
+
+### 1. Setup Backend
+
+Update `root/backed.tf` to point to your Azure Storage Account for state (created during OIDC setup):
+
+```hcl
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "sttfstate..." # YOUR ACCOUNT
+    container_name       = "tfstate"
+    key                  = "terraform.tfstate"
+    use_oidc             = true # Use false if using AZ CLI login locally without SP
+  }
+}
 ```
 
-## 3. Module Explanations
+### 2. Initialize
 
-### `root/main.tf`
-This is the "brain" of the deployment.
-*   **Resource Group**: One per environment (e.g., `lakehouse-dev-rg`).
-*   **Storage**: Creates `lakehouse<env>dl` (Data Lake) with HNS enabled.
-*   **Networking/Security**: Grants `Storage Blob Data Contributor` to the Databricks Access Connector Managed Identity.
-*   **Connects Components**: Passes the Storage outputs to the Databricks Workspace and Unity Catalog modules.
-
-### `root/locals.tf`
-This file makes the code "smart" about environments. It uses the `terraform.workspace` name to decide:
-*   **Region**: `westeurope` for Dev/UAT, `northeurope` for Prod.
-*   **Cluster Size**: Larger nodes (`Standard_DS5_v2`) for Prod, smaller for Dev.
-
-### `modules/external_locations`
-Critically important for **Unity Catalog**.
-1.  Creates a **Storage Credential** that uses the Azure Managed Identity (Access Connector).
-2.  Loops through your containers (`raw`, `bronze`, etc.) and creates an **External Location** for each. This allows you to write SQL like `CREATE TABLE catalog.schema.table LOCATION 'abfss://...'` securely.
-
-### `modules/dlt_pipeline`
-Deploys a Delta Live Tables pipeline.
-*   **Source Code**: It points to a Git repo folder `/Repos/dlt/transport_pipeline`. **Note**: You must ensure this repo is checked out in your workspace or the path is correct.
-
-## 4. Deployment Guide
-
-### ✅ Prerequisites
-1.  **Terraform installed** (v1.5+).
-2.  **Azure CLI installed** and authenticated (`az login`).
-3.  **Owner/Contributor access** on the target Azure Subscription (to create Resource Groups and Role Assignments).
-
-### 🚀 Step-by-Step Deployment
-
-#### 1. Setup Backend (Important)
-*   **Current State**: The `root/backed.tf` file is currently empty. This means Terraform will store state **locally** on your machine.
-*   **Recommendation**: For a team, configure a remote backend (Azure Blob Storage) in this file to share the state.
-
-#### 2. Initialize Terraform
-Navigate to the root directory:
 ```bash
 cd root
 terraform init
 ```
 
-#### 3. Select Environment (Workspace)
-Create or select the workspace for the environment you want to deploy (dev, uat, prod):
-```bash
-# Create specific workspace if it doesn't exist
-terraform workspace new dev
+### 3. Select Workspace
 
-# Or select existing
+Isolate your environment state:
+
+```bash
+terraform workspace new dev
+# OR
 terraform workspace select dev
 ```
 
-#### 4. Plan
-Check what Terraform will create. You usually need to pass the subscription ID.
+### 4. Plan & Apply
+
 ```bash
-terraform plan -var="subscription_id=YOUR_SUBS_ID" -out=tfplan
+terraform plan -out=dev.plan
+terraform apply dev.plan
 ```
 
-#### 5. Apply
-Execute the changes.
-```bash
-terraform apply tfplan
-```
+---
 
-## 5. Post-Deployment Verification
-1.  Go to the **Azure Portal** -> Resource Group (e.g., `lakehouse-dev-rg`).
-2.  Check for:
-    *   **Databricks Service**: Launch the workspace.
-    *   **Storage Account**: Check that containers `raw`, `bronze` etc. exist.
-3.  Go to **Databricks Workpsace** -> **Catalog**.
-    *   Verify **External Locations** are created and "Test Connection" works.
-    *   Verify the `schema_bronze` (defined in locals) exists in your catalog.
+## 📂 5. Repository Structure
+
+```text
+.
+├── .github/workflows/   # CI/CD Definitions
+├── root/                # 🟢 ENTRY POINT (main.tf, variables.tf)
+├── modules/             # 🧩 Reusable Terraform Modules
+├── env/                 # 🌍 Environment-specific .tfvars (Optional)
+├── OIDC_SETUP.md        # 🔑 Authentication Setup Guide
+└── README.md            # 📄 This Documentation
+```
