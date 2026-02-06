@@ -63,6 +63,16 @@ resource "azurerm_role_assignment" "adls_uc" {
   principal_id         = module.access_connector.principal_id
 }
 
+# -----------------------------
+# Role Assignment: MI Reader on Self
+# Required for Databricks to create Storage Credential
+# -----------------------------
+resource "azurerm_role_assignment" "ac_reader" {
+  scope                = module.access_connector.id
+  role_definition_name = "Reader"
+  principal_id         = module.access_connector.principal_id
+}
+
 
 
 # -----------------------------
