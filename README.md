@@ -31,6 +31,9 @@ You must configure these **GitHub Secrets**:
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
+- `BACKEND_RESOURCE_GROUP_NAME` (Value: `rg-terraform-state`)
+- `BACKEND_STORAGE_ACCOUNT_NAME` (Value: `sttfstate29150`)
+- `BACKEND_CONTAINER_NAME` (Value: `tfstate`)
 
 ---
 
@@ -91,19 +94,25 @@ If you need to run Terraform locally (e.g., for development):
 
 ### 1. Setup Backend
 
-Update `root/backed.tf` to point to your Azure Storage Account for state (created during OIDC setup):
+We use **Partial Configuration** to keep secrets out of the code.
 
-```hcl
-terraform {
-  backend "azurerm" {
+1.  **Configure Local Settings**:
+    A file named `backend.conf` has been created in the `root/` directory. **Ensure this file is ignored by Git.**
+    Create it from `backend.conf.example` with your state storage details:
+
+    ```ini
     resource_group_name  = "rg-terraform-state"
-    storage_account_name = "sttfstate..." # YOUR ACCOUNT
+    storage_account_name = "sttfstate29150" # Replace with your account
     container_name       = "tfstate"
     key                  = "terraform.tfstate"
-    use_oidc             = true # Use false if using AZ CLI login locally without SP
-  }
-}
-```
+    ```
+
+2.  **Initialize**:
+    Pass this file to the init command:
+    ```bash
+    cd root
+    terraform init -backend-config=backend.conf
+    ```
 
 ### 2. Initialize
 
