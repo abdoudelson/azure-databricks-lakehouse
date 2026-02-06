@@ -69,9 +69,9 @@ jobs:
         if: github.event_name == 'push'
         run: |
           terraform init \
-            -backend-config="resource_group_name=${{ env.BACKEND_RESOURCE_GROUP_NAME }}" \
-            -backend-config="storage_account_name=${{ env.BACKEND_STORAGE_ACCOUNT_NAME }}" \
-            -backend-config="container_name=${{ env.BACKEND_CONTAINER_NAME }}" \
+            -backend-config="resource_group_name=${{ secrets.BACKEND_RESOURCE_GROUP_NAME }}" \
+            -backend-config="storage_account_name=${{ secrets.BACKEND_STORAGE_ACCOUNT_NAME }}" \
+            -backend-config="container_name=${{ secrets.BACKEND_CONTAINER_NAME }}" \
             -backend-config="key=${{ steps.workspace.outputs.name }}/terraform.tfstate" \
             -backend-config="use_oidc=true"
 
