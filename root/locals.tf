@@ -4,8 +4,10 @@ locals {
   location_map = {
     dev  = "westeurope"
     uat  = "westeurope"
+    ppd  = "westeurope" # Pre-Production
     test = "westeurope"
     prod = "northeurope"
+    prd  = "northeurope" # Production (alias)
   }
 
   location = local.location_map[terraform.workspace]
@@ -13,8 +15,10 @@ locals {
   cluster_node_type = {
     dev  = "Standard_DS3_v2"
     uat  = "Standard_DS3_v2"
+    ppd  = "Standard_DS3_v2"
     test = "Standard_DS3_v2"
     prod = "Standard_DS5_v2"
+    prd  = "Standard_DS5_v2"
   }
 
   is_prod = terraform.workspace == "prod"
