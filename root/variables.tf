@@ -3,7 +3,4 @@ variable "subscription_id" {
   description = "Azure subscription ID"
 }
 
-variable "databricks_node_type" {
-  type        = string
-  description = "Node type for Databricks job clusters"
-}
+
