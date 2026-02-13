@@ -31,6 +31,7 @@ You must configure these **GitHub Secrets**:
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
+- `PIPELINE_REPO_URL` (Example: `https://github.com/abdoudelson/crypto-pypeline.git`)
 - `BACKEND_RESOURCE_GROUP_NAME` (Value: `rg-terraform-state`)
 - `BACKEND_STORAGE_ACCOUNT_NAME` (Value: `sttfstate29150`)
 - `BACKEND_CONTAINER_NAME` (Value: `tfstate`)
@@ -79,7 +80,8 @@ The project uses **GitHub Actions** for automated deployment. The workflow is de
 2.  **Checkout**: Pulls the code.
 3.  **Validation (Pull Request)**:
     - Runs `terraform fmt -check` to ensure code style.
-    - Runs `terraform init` to validate configuration.
+    - Runs `terraform init -backend=false`.
+    - Runs `terraform validate`.
 4.  **Deployment (Push to main/develop)**:
     - **Determine Workspace**: Dynamic logic to pick `prd` vs `ppd` based on branch.
     - **Init with Dynamic Key**: Initializes backend using the workspace name as the state folder (e.g., `prd/terraform.tfstate`).
@@ -107,18 +109,20 @@ We use **Partial Configuration** to keep secrets out of the code.
     key                  = "terraform.tfstate"
     ```
 
-2.  **Initialize**:
-    Pass this file to the init command:
-    ```bash
-    cd root
-    terraform init -backend-config=backend.conf
+2.  **Set required variables**:
+    Create a `terraform.tfvars` in `root/` with at least:
+
+    ```hcl
+    subscription_id   = "<your-subscription-id>"
+    pipeline_repo_url = "https://github.com/abdoudelson/crypto-pypeline.git"
+    catalog_name      = "main"
     ```
 
 ### 2. Initialize
 
 ```bash
 cd root
-terraform init
+terraform init -backend-config=backend.conf
 ```
 
 ### 3. Select Workspace

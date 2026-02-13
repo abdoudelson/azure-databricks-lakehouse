@@ -52,6 +52,11 @@ module "external_locations" {
   containers          = local.containers
   prefix              = local.prefix
   access_connector_id = module.access_connector.id
+
+  depends_on = [
+    azurerm_role_assignment.adls_uc,
+    azurerm_role_assignment.ac_reader
+  ]
 }
 
 # -----------------------------
@@ -126,7 +131,7 @@ resource "databricks_schema" "schemas" {
 locals {
   pipelines_config = yamldecode(file("${path.module}/pipelines.yaml"))
 
-  # Replace template variables in storage paths
+  # Replace template variables in pipeline paths.
   pipelines_processed = [
     for pipeline in local.pipelines_config.pipelines : merge(pipeline, {
       storage_path = replace(
@@ -134,14 +139,16 @@ locals {
         "{storage_account}",
         module.storage.account_name
       )
+      notebook_path = try(
+        replace(pipeline.notebook_path, "{repo_prefix}", local.prefix),
+        null
+      )
+      file_path = try(
+        replace(pipeline.file_path, "{repo_prefix}", local.prefix),
+        null
+      )
     })
   ]
-
-  # Create dependency map for pipeline-to-pipeline dependencies
-  pipeline_dependencies = {
-    for pipeline in local.pipelines_processed :
-    pipeline.name => lookup(pipeline, "depends_on", [])
-  }
 }
 
 resource "databricks_pipeline" "pipelines" {
@@ -150,7 +157,8 @@ resource "databricks_pipeline" "pipelines" {
   name       = each.value.name
   continuous = lookup(each.value, "continuous", false)
   catalog    = local.catalog
-  target     = "${local.catalog}.${each.value.target_schema}"
+  target     = each.value.target_schema
+  storage    = each.value.storage_path
 
   # Support multiple libraries if defined in YAML, fallback to single notebook_path
   dynamic "library" {
@@ -171,6 +179,15 @@ resource "databricks_pipeline" "pipelines" {
     }
   }
 
+  dynamic "library" {
+    for_each = lookup(each.value, "file_path", null) != null ? [1] : []
+    content {
+      file {
+        path = each.value.file_path
+      }
+    }
+  }
+
   configuration = merge(
     lookup(each.value, "configuration", {}),
     {
@@ -182,6 +199,8 @@ resource "databricks_pipeline" "pipelines" {
   depends_on = [
     # databricks_catalog.main,
     module.databricks_workspace,
+    module.external_locations,
+    databricks_schema.schemas,
     databricks_repo.crypto_pipeline
   ]
 }

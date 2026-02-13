@@ -19,14 +19,9 @@ locals {
     prd  = "Standard_DS5_v2"
   }
 
-  is_prod = terraform.workspace == "prod"
+  is_prod = terraform.workspace == "prd"
 
   containers = ["raw", "bronze", "silver", "gold"]
 
-  catalog     = "azure_dbks_lakehouse_${terraform.workspace}_dbw_7405616143226200"
-  schema_name = "schema_bronze"
-
-  pipeline_name    = "bronze-dlt-pipeline"
-  pipeline_storage = "dbfs:/pipelines/bronze"
-
+  catalog = var.catalog_name
 }

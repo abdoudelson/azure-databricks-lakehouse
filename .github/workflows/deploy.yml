@@ -25,6 +25,7 @@ env:
   BACKEND_STORAGE_ACCOUNT_NAME: "sttfstate29150"
   BACKEND_CONTAINER_NAME: "tfstate"
   TF_VAR_subscription_id: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+  TF_VAR_pipeline_repo_url: "${{ secrets.PIPELINE_REPO_URL }}"
 
 defaults:
   run:
@@ -60,6 +61,12 @@ jobs:
       - name: Terraform Format
         run: terraform fmt -check
 
+      - name: Terraform Init (PR)
+        if: github.event_name == 'pull_request'
+        run: terraform init -backend=false
+
+
+
       # ---------------------------------------------------------
       # Push ONLY: Init, Plan, Apply
       # ---------------------------------------------------------
@@ -74,6 +81,9 @@ jobs:
             echo "Selecting workspace: ppd"
             echo "name=ppd" >> $GITHUB_OUTPUT
           fi
+      - name: Terraform Validate (PR)
+        if: github.event_name == 'pull_request'
+        run: terraform validate -no-color
 
       - name: Terraform Init
         if: github.event_name == 'push'
