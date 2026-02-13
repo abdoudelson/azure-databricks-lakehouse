@@ -76,30 +76,112 @@ resource "azurerm_role_assignment" "ac_reader" {
 
 
 # -----------------------------
-# Schema
+# Unity Catalog
 # -----------------------------
-resource "databricks_schema" "schema_test" {
-  catalog_name = local.catalog
-  name         = local.schema_name
+# resource "databricks_catalog" "main" {
+#   name    = local.catalog
+#   comment = "Main lakehouse catalog for ${terraform.workspace} environment"
+
+#   depends_on = [
+#     module.databricks_workspace,
+#     module.external_locations
+#   ]
+# }
+
+# -----------------------------
+# Git Repository Integration
+# -----------------------------
+resource "databricks_repo" "crypto_pipeline" {
+  url  = var.pipeline_repo_url
+  path = "/Repos/${local.prefix}/crypto-pipeline"
+
   depends_on = [
-    module.databricks_workspace.name
+    module.databricks_workspace
   ]
 }
 
 # -----------------------------
-# DLT Pipeline
+# Schemas (Declarative YAML-Driven)
 # -----------------------------
-module "dlt_pipeline" {
-  source = "../modules/dlt_pipeline"
+locals {
+  schemas_config = yamldecode(file("${path.module}/schemas.yaml"))
+}
 
-  name       = local.pipeline_name
-  continuous = true
+resource "databricks_schema" "schemas" {
+  for_each = { for schema in local.schemas_config.schemas : schema.name => schema }
 
-  catalog          = local.catalog
-  schema           = local.schema_name
-  pipeline_storage = "abfss://bronze@lakehouseuatdl.dfs.core.windows.net/dlt"
+  catalog_name = local.catalog
+  name         = each.value.name
+  comment      = lookup(each.value, "comment", null)
 
   depends_on = [
-    databricks_schema.schema_test
+    # databricks_catalog.main,
+    module.databricks_workspace
+  ]
+}
+
+# -----------------------------
+# DLT Pipelines (Declarative YAML-Driven)
+# -----------------------------
+locals {
+  pipelines_config = yamldecode(file("${path.module}/pipelines.yaml"))
+
+  # Replace template variables in storage paths
+  pipelines_processed = [
+    for pipeline in local.pipelines_config.pipelines : merge(pipeline, {
+      storage_path = replace(
+        pipeline.storage_path,
+        "{storage_account}",
+        module.storage.account_name
+      )
+    })
+  ]
+
+  # Create dependency map for pipeline-to-pipeline dependencies
+  pipeline_dependencies = {
+    for pipeline in local.pipelines_processed :
+    pipeline.name => lookup(pipeline, "depends_on", [])
+  }
+}
+
+resource "databricks_pipeline" "pipelines" {
+  for_each = { for pipeline in local.pipelines_processed : pipeline.name => pipeline }
+
+  name       = each.value.name
+  continuous = lookup(each.value, "continuous", false)
+  catalog    = local.catalog
+  target     = "${local.catalog}.${each.value.target_schema}"
+
+  # Support multiple libraries if defined in YAML, fallback to single notebook_path
+  dynamic "library" {
+    for_each = lookup(each.value, "libraries", [])
+    content {
+      notebook {
+        path = library.value.notebook_path
+      }
+    }
+  }
+
+  dynamic "library" {
+    for_each = lookup(each.value, "notebook_path", null) != null ? [1] : []
+    content {
+      notebook {
+        path = each.value.notebook_path
+      }
+    }
+  }
+
+  configuration = merge(
+    lookup(each.value, "configuration", {}),
+    {
+      "pipelines.catalog"         = local.catalog
+      "pipelines.storage_account" = module.storage.account_name
+    }
+  )
+
+  depends_on = [
+    # databricks_catalog.main,
+    module.databricks_workspace,
+    databricks_repo.crypto_pipeline
   ]
 }

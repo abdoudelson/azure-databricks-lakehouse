@@ -1,0 +1,26 @@
+pipelines:
+  - name: crypto-bronze-pipeline
+    notebook_path: /Repos/azure-dbks-lakehouse-dev/crypto-pipeline/bronze
+    target_schema: schema_bronze
+    continuous: true
+    storage_path: abfss://bronze@{storage_account}.dfs.core.windows.net/dlt
+
+  - name: crypto-silver-pipeline
+    notebook_path: /Repos/azure-dbks-lakehouse-dev/crypto-pipeline/silver
+    target_schema: schema_silver
+    continuous: false
+    storage_path: abfss://silver@{storage_account}.dfs.core.windows.net/dlt
+    depends_on:
+      - crypto-bronze-pipeline
+    configuration:
+      pipelines.target_schema_bronze: schema_bronze
+
+  - name: crypto-gold-pipeline
+    notebook_path: /Repos/azure-dbks-lakehouse-dev/crypto-pipeline/gold
+    target_schema: schema_gold
+    continuous: false
+    storage_path: abfss://gold@{storage_account}.dfs.core.windows.net/dlt
+    depends_on:
+      - crypto-silver-pipeline
+    configuration:
+      pipelines.target_schema_silver: schema_silver

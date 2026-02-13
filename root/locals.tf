@@ -1,12 +1,11 @@
 locals {
-  prefix = "lakehouse-${terraform.workspace}"
+  prefix = "azure-dbks-lakehouse-${terraform.workspace}"
 
   location_map = {
     dev  = "westeurope"
     uat  = "westeurope"
     ppd  = "westeurope" # Pre-Production
     test = "westeurope"
-    prod = "northeurope"
     prd  = "northeurope" # Production (alias)
   }
 
@@ -17,7 +16,6 @@ locals {
     uat  = "Standard_DS3_v2"
     ppd  = "Standard_DS3_v2"
     test = "Standard_DS3_v2"
-    prod = "Standard_DS5_v2"
     prd  = "Standard_DS5_v2"
   }
 
@@ -25,7 +23,7 @@ locals {
 
   containers = ["raw", "bronze", "silver", "gold"]
 
-  catalog     = "lakehouse_${terraform.workspace}_dbw"
+  catalog     = "azure_dbks_lakehouse_${terraform.workspace}_dbw_7405616143226200"
   schema_name = "schema_bronze"
 
   pipeline_name    = "bronze-dlt-pipeline"
