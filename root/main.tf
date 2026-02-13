@@ -158,7 +158,7 @@ resource "databricks_pipeline" "pipelines" {
   continuous = lookup(each.value, "continuous", false)
   catalog    = local.catalog
   target     = each.value.target_schema
-  storage    = each.value.storage_path
+  # storage    = each.value.storage_path # Conflict with catalog
 
   # Support multiple libraries if defined in YAML, fallback to single notebook_path
   dynamic "library" {
