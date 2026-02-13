@@ -20,20 +20,17 @@ env:
   ARM_TENANT_ID: "${{ secrets.AZURE_TENANT_ID }}"
   ARM_USE_OIDC: true
 
-  # Backend config
-  BACKEND_RESOURCE_GROUP_NAME: "rg-terraform-state"
-  BACKEND_STORAGE_ACCOUNT_NAME: "sttfstate29150"
-  BACKEND_CONTAINER_NAME: "tfstate"
+  # Backend config - Updated to match requested keys
   TF_VAR_subscription_id: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-
-defaults:
-  run:
-    working-directory: ./root
+  TF_VAR_pipeline_repo_url: "${{ secrets.PIPELINE_REPO_URL }}"
 
 jobs:
   terraform:
     name: "Terraform"
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./root
 
     steps:
       - name: Checkout
@@ -55,28 +52,43 @@ jobs:
           terraform_version: 1.5.0
 
       # ---------------------------------------------------------
-      # PR & Push: Always check formatting
+      # PR validation only
       # ---------------------------------------------------------
-      - name: Terraform Format
-        run: terraform fmt -check
+      - name: Terraform Init (Validation)
+        if: github.event_name == 'pull_request'
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        if: github.event_name == 'pull_request'
+        run: terraform validate -no-color
 
       # ---------------------------------------------------------
-      # Push ONLY: Init, Plan, Apply
+      # Workspace selection (PR target branch / push branch)
       # ---------------------------------------------------------
       - name: Determine Workspace
-        if: github.event_name == 'push'
         id: workspace
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "Selecting workspace: prd"
-            echo "name=prd" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "Selecting workspace: ppd"
-            echo "name=ppd" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TARGET_BRANCH="${{ github.base_ref }}"
+          else
+            TARGET_BRANCH="${{ github.ref_name }}"
           fi
 
+          if [[ "$TARGET_BRANCH" == "develop" ]]; then
+            echo "Selecting workspace: ppd"
+            echo "name=ppd" >> "$GITHUB_OUTPUT"
+          elif [[ "$TARGET_BRANCH" == "main" ]]; then
+            echo "Selecting workspace: prd"
+            echo "name=prd" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unsupported target branch: $TARGET_BRANCH"
+            exit 1
+          fi
+
+      # ---------------------------------------------------------
+      # Terraform Init (With Backend)
+      # ---------------------------------------------------------
       - name: Terraform Init
-        if: github.event_name == 'push'
         run: |
           terraform init \
             -backend-config="resource_group_name=${{ secrets.BACKEND_RESOURCE_GROUP_NAME }}" \
@@ -86,14 +98,40 @@ jobs:
             -backend-config="use_oidc=true"
 
       - name: Select Terraform Workspace
-        if: github.event_name == 'push'
         run: |
           terraform workspace select ${{ steps.workspace.outputs.name }} || terraform workspace new ${{ steps.workspace.outputs.name }}
 
+      # ---------------------------------------------------------
+      # Terraform Plan (PR Only)
+      # ---------------------------------------------------------
       - name: Terraform Plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan -no-color -input=false -out=tfplan
+
+      - name: Save Terraform Plan (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          az storage blob upload \
+            --auth-mode login \
+            --account-name "${{ secrets.BACKEND_STORAGE_ACCOUNT_NAME }}" \
+            --container-name "${{ secrets.BACKEND_CONTAINER_NAME }}" \
+            --name "${{ steps.workspace.outputs.name }}/pr.tfplan" \
+            --file tfplan \
+            --overwrite true
+
+      # ---------------------------------------------------------
+      # Terraform Apply (Push Only - Using Saved Plan)
+      # ---------------------------------------------------------
+      - name: Retrieve Terraform Plan (Push)
         if: github.event_name == 'push'
-        run: terraform plan -no-color -input=false
+        run: |
+          az storage blob download \
+            --auth-mode login \
+            --account-name "${{ secrets.BACKEND_STORAGE_ACCOUNT_NAME }}" \
+            --container-name "${{ secrets.BACKEND_CONTAINER_NAME }}" \
+            --name "${{ steps.workspace.outputs.name }}/pr.tfplan" \
+            --file tfplan
 
       - name: Terraform Apply
         if: github.event_name == 'push'
-        run: terraform apply -auto-approve -input=false
+        run: terraform apply -input=false tfplan

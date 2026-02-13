@@ -1,0 +1,7 @@
+schemas:
+  - name: schema_bronze
+    comment: "Bronze layer - raw ingested data"
+  - name: schema_silver
+    comment: "Silver layer - cleaned and validated data"
+  - name: schema_gold
+    comment: "Gold layer - business-ready aggregated data"
